@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Booking</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f2f3f5);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8a8f98);
+    --accent: var(--tg-theme-button-color, #2481cc);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --radius: 14px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg2);color:var(--text);padding:16px 16px 90px}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  h1{font-size:20px;margin:0}
+  .lang{display:flex;background:var(--bg);border-radius:10px;overflow:hidden}
+  .lang button{border:0;background:none;color:var(--hint);padding:6px 10px;font-weight:600;cursor:pointer}
+  .lang button.on{background:var(--accent);color:var(--accent-text)}
+  section{background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--hint);margin:0 0 10px}
+  .services{display:grid;gap:8px}
+  .svc{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:12px;border:2px solid transparent;background:var(--bg2);cursor:pointer}
+  .svc.on{border-color:var(--accent)}
+  .svc small{color:var(--hint);display:block;margin-top:2px}
+  .price{font-weight:700;white-space:nowrap}
+  .scroller{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+  .scroller::-webkit-scrollbar{display:none}
+  .day{flex:0 0 58px;text-align:center;padding:8px 0;border-radius:12px;background:var(--bg2);cursor:pointer}
+  .day b{display:block;font-size:18px}
+  .day span{font-size:12px;color:var(--hint)}
+  .day.on{background:var(--accent);color:var(--accent-text)}
+  .day.on span{color:var(--accent-text)}
+  .day.off{opacity:.35;pointer-events:none}
+  .slots{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .slot{padding:10px 0;text-align:center;border-radius:10px;background:var(--bg2);cursor:pointer;font-weight:600}
+  .slot.on{background:var(--accent);color:var(--accent-text)}
+  .slot.busy{opacity:.3;text-decoration:line-through;pointer-events:none}
+  .empty{color:var(--hint);font-size:14px}
+  label{display:block;font-size:13px;color:var(--hint);margin:8px 0 4px}
+  input,textarea{width:100%;border:0;border-radius:10px;padding:12px;background:var(--bg2);color:var(--text);font-size:16px;font-family:inherit}
+  textarea{resize:none;height:70px}
+  #fallbackBtn{display:none;position:fixed;left:16px;right:16px;bottom:16px;border:0;border-radius:12px;padding:15px;font-size:16px;font-weight:700;background:var(--accent);color:var(--accent-text)}
+  #fallbackBtn:disabled{opacity:.4}
+</style>
+</head>
+<body>
+<header>
+  <h1 data-t="title"></h1>
+  <div class="lang"><button data-l="kk">ҚАЗ</button><button data-l="ru">РУС</button></div>
+</header>
+
+<section><h2 data-t="service"></h2><div class="services" id="services"></div></section>
+<section><h2 data-t="date"></h2><div class="scroller" id="days"></div></section>
+<section><h2 data-t="time"></h2><div class="slots" id="slots"></div></section>
+<section>
+  <h2 data-t="contacts"></h2>
+  <label data-t="name"></label><input id="name" autocomplete="name">
+  <label data-t="phone"></label><input id="phone" type="tel" placeholder="+7 7__ ___ __ __" autocomplete="tel">
+  <label data-t="comment"></label><textarea id="comment"></textarea>
+</section>
+
+<button id="fallbackBtn"></button>
+
+<script>
+/* ============ БАПТАУЛАР / НАСТРОЙКИ ============ */
+const CONFIG = {
+  currency: "₸",
+  daysAhead: 14,          // қанша күн алға жазылуға болады
+  workStart: 9,           // жұмыс басталуы (сағат)
+  workEnd: 19,            // жұмыс аяқталуы (сағат)
+  stepMinutes: 60,        // слот ұзақтығы
+  daysOff: [0],           // демалыс күндері: 0=Жексенбі, 6=Сенбі
+  services: [
+    { id: "haircut", kk: "Шаш қию",       ru: "Стрижка",          price: 5000,  min: 60 },
+    { id: "beard",   kk: "Сақал түзету",  ru: "Оформление бороды", price: 3000,  min: 30 },
+    { id: "color",   kk: "Шаш бояу",      ru: "Окрашивание",      price: 12000, min: 120 },
+    { id: "manicure",kk: "Маникюр",       ru: "Маникюр",          price: 6000,  min: 60 },
+  ]
+};
+
+const I18N = {
+  kk: { title:"Онлайн жазылу", service:"Қызмет", date:"Күні", time:"Уақыты", contacts:"Байланыс",
+        name:"Атыңыз", phone:"Телефон", comment:"Пікір (міндетті емес)", min:"мин",
+        book:"Жазылу", pickDay:"Алдымен күнді таңдаңыз", noSlots:"Бұл күні бос уақыт жоқ",
+        fill:"Барлық өрістерді толтырыңыз",
+        wd:["Жс","Дс","Сс","Ср","Бс","Жм","Сн"] },
+  ru: { title:"Онлайн-запись", service:"Услуга", date:"Дата", time:"Время", contacts:"Контакты",
+        name:"Ваше имя", phone:"Телефон", comment:"Комментарий (необязательно)", min:"мин",
+        book:"Записаться", pickDay:"Сначала выберите дату", noSlots:"На этот день нет свободного времени",
+        fill:"Заполните все поля",
+        wd:["Вс","Пн","Вт","Ср","Чт","Пт","Сб"] }
+};
+
+/* ============ ЛОГИКА ============ */
+const tg = window.Telegram?.WebApp;
+const inTelegram = !!(tg && tg.initData);
+if (tg) { tg.ready(); tg.expand(); }
+
+const params = new URLSearchParams(location.search);
+const busy = new Set((params.get("busy") || "").split(",").filter(Boolean)); // "2026-10-05T10:00"
+
+let lang = params.get("lang") || (tg?.initDataUnsafe?.user?.language_code === "ru" ? "ru" : "kk");
+const state = { service: null, date: null, time: null };
+
+const pad = n => String(n).padStart(2, "0");
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const t = k => I18N[lang][k];
+const haptic = () => tg?.HapticFeedback?.selectionChanged?.();
+
+function renderTexts(){
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-t]").forEach(el => el.textContent = t(el.dataset.t));
+  document.querySelectorAll(".lang button").forEach(b => b.classList.toggle("on", b.dataset.l === lang));
+  if (tg?.MainButton) tg.MainButton.setText(t("book"));
+  fallbackBtn.textContent = t("book");
+}
+
+function renderServices(){
+  const box = document.getElementById("services");
+  box.innerHTML = "";
+  CONFIG.services.forEach(s => {
+    const el = document.createElement("div");
+    el.className = "svc" + (state.service === s.id ? " on" : "");
+    el.innerHTML = `<div>${s[lang]}<small>${s.min} ${t("min")}</small></div>
+                    <div class="price">${s.price.toLocaleString("ru-RU")} ${CONFIG.currency}</div>`;
+    el.onclick = () => { state.service = s.id; haptic(); renderServices(); update(); };
+    box.appendChild(el);
+  });
+}
+
+function renderDays(){
+  const box = document.getElementById("days");
+  box.innerHTML = "";
+  const today = new Date(); today.setHours(0,0,0,0);
+  for (let i = 0; i < CONFIG.daysAhead; i++){
+    const d = new Date(today); d.setDate(today.getDate() + i);
+    const key = iso(d);
+    const el = document.createElement("div");
+    el.className = "day" + (state.date === key ? " on" : "") + (CONFIG.daysOff.includes(d.getDay()) ? " off" : "");
+    el.innerHTML = `<span>${t("wd")[d.getDay()]}</span><b>${d.getDate()}</b><span>${pad(d.getMonth()+1)}</span>`;
+    el.onclick = () => { state.date = key; state.time = null; haptic(); renderDays(); renderSlots(); update(); };
+    box.appendChild(el);
+  }
+}
+
+function renderSlots(){
+  const box = document.getElementById("slots");
+  box.innerHTML = "";
+  if (!state.date){ box.innerHTML = `<div class="empty" style="grid-column:1/-1">${t("pickDay")}</div>`; return; }
+  const now = new Date();
+  let count = 0;
+  for (let m = CONFIG.workStart*60; m < CONFIG.workEnd*60; m += CONFIG.stepMinutes){
+    const hhmm = `${pad(Math.floor(m/60))}:${pad(m%60)}`;
+    const slotDate = new Date(`${state.date}T${hhmm}:00`);
+    const isBusy = busy.has(`${state.date}T${hhmm}`) || slotDate <= now;
+    if (!isBusy) count++;
+    const el = document.createElement("div");
+    el.className = "slot" + (isBusy ? " busy" : "") + (state.time === hhmm ? " on" : "");
+    el.textContent = hhmm;
+    el.onclick = () => { state.time = hhmm; haptic(); renderSlots(); update(); };
+    box.appendChild(el);
+  }
+  if (!count) box.insertAdjacentHTML("beforeend", `<div class="empty" style="grid-column:1/-1">${t("noSlots")}</div>`);
+}
+
+const $name = document.getElementById("name");
+const $phone = document.getElementById("phone");
+const $comment = document.getElementById("comment");
+const fallbackBtn = document.getElementById("fallbackBtn");
+
+function isValid(){
+  return state.service && state.date && state.time &&
+         $name.value.trim().length >= 2 && $phone.value.replace(/\D/g,"").length >= 10;
+}
+
+function update(){
+  const ok = isValid();
+  if (inTelegram){
+    tg.MainButton.show();
+    ok ? tg.MainButton.enable() : tg.MainButton.disable();
+    tg.MainButton.color = ok ? tg.themeParams.button_color || "#2481cc" : (tg.themeParams.hint_color || "#999999");
+  } else {
+    fallbackBtn.style.display = "block";
+    fallbackBtn.disabled = !ok;
+  }
+}
+
+function submit(){
+  if (!isValid()){ tg?.showAlert ? tg.showAlert(t("fill")) : alert(t("fill")); return; }
+  const svc = CONFIG.services.find(s => s.id === state.service);
+  const payload = {
+    service: svc.id, service_name: svc[lang], price: svc.price, duration: svc.min,
+    date: state.date, time: state.time,
+    name: $name.value.trim(), phone: $phone.value.trim(), comment: $comment.value.trim(),
+    lang
+  };
+  tg?.HapticFeedback?.notificationOccurred?.("success");
+  if (inTelegram) tg.sendData(JSON.stringify(payload));   // ботқа жібереді және терезені жабады
+  else { console.log(payload); alert(JSON.stringify(payload, null, 2)); }
+}
+
+[$name, $phone].forEach(el => el.addEventListener("input", update));
+document.querySelectorAll(".lang button").forEach(b => b.onclick = () => {
+  lang = b.dataset.l; renderTexts(); renderServices(); renderDays(); renderSlots();
+});
+if (inTelegram) tg.MainButton.onClick(submit); else fallbackBtn.onclick = submit;
+
+const u = tg?.initDataUnsafe?.user;
+if (u) $name.value = [u.first_name, u.last_name].filter(Boolean).join(" ");
+
+renderTexts(); renderServices(); renderDays(); renderSlots(); update();
+</script>
+</body>
+</html>
